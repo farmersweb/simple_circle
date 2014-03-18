@@ -59,7 +59,7 @@ class Array
 end
 
 class MultiSet
-  def initialize
+  def merge!
     require "simplecov"
 
     json_files = Dir['./tmp/**/**/.resultset.json']
@@ -88,20 +88,32 @@ class MultiSet
       result
     end
 
-    (class << File; self; end).class_eval %Q{
-      alias_method :open, :original_open
-    }
-
-    merged_result = results[0]
-    results[1..-1].each do |result|
-      merged_result.original_result.map do |filename, lines| 
-        if !result.original_result[filename].nil?
-          merged_result.original_result[filename].simplecov_merge result.original_result[filename]
+    merged_result = {}
+    results.each do |result|
+      result.original_result.keys.each do |filename|
+        if !merged_result[filename].nil? && !result.original_result[filename].nil?
+          merged_result[filename].simplecov_merge result.original_result[filename]
+        elsif !result.original_result[filename].nil?
+          merged_result[filename] = result.original_result[filename]
         end
       end
     end
 
-    @result = merged_result
+    @result = SimpleCov::Result.new(merged_result)
+    @result.command_name = "RSpec"
+
+    mock_files = SimpleCov::FileList.new(merged_result.map { |filename, coverage|
+      mock_file = SimpleCov::SourceFile.new(filename, coverage) 
+      mock_file.send(:instance_variable_set, "@src", coverage.map {|c| "MOCKED: #{c}"})
+      mock_file
+    }.compact.sort_by(&:filename))
+
+    @result.send(:instance_variable_set, "@files", mock_files)
+
+    (class << File; self; end).class_eval %Q{
+      alias_method :open, :original_open
+    }
+
     @result
   end
 
@@ -132,7 +144,7 @@ get '/:username/:project/:build' do
   artifacts.map(&:fetch!)
 
   multi = MultiSet.new
-
+  multi.merge!
   multi.format!
   
   redirect to('/coverage/index')
