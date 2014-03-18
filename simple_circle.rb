@@ -64,43 +64,31 @@ class MultiSet
 
     json_files = Dir['./tmp/**/**/.resultset.json']
 
-    (class << File; self; end).class_eval %Q{
-      alias_method :original_open, :open
-      def open(*args)
-      end
-    }
-
     results = json_files.map do |coverage_file|
       file = File.read(coverage_file)
       json = SimpleCov::JSON.parse(file)
-
-      result = SimpleCov::Result.new(json["RSpec"]["coverage"])
-    
-      mock_files = SimpleCov::FileList.new(json["RSpec"]["coverage"].map { |filename, coverage|
-        mock_file = SimpleCov::SourceFile.new(filename, coverage) 
-        mock_file.send(:instance_variable_set, "@src", coverage.map {|c| "MOCKED: #{c}"})
-        mock_file
-      }.compact.sort_by(&:filename))
-
-      result.send(:instance_variable_set, "@files", mock_files)
-      result.command_name = 'RSpec'
-
-      result
+      json["RSpec"]["coverage"]
     end
 
     merged_result = {}
     results.each do |result|
-      result.original_result.keys.each do |filename|
-        if !merged_result[filename].nil? && !result.original_result[filename].nil?
-          merged_result[filename].simplecov_merge result.original_result[filename]
-        elsif !result.original_result[filename].nil?
-          merged_result[filename] = result.original_result[filename]
+      result.keys.each do |filename|
+        if !merged_result[filename].nil? && !result[filename].nil?
+          merged_result[filename].simplecov_merge result[filename]
+        elsif !result[filename].nil?
+          merged_result[filename] = result[filename]
         end
       end
     end
 
     @result = SimpleCov::Result.new(merged_result)
     @result.command_name = "RSpec"
+
+    (class << File; self; end).class_eval %Q{
+      alias_method :original_open, :open
+      def open(*args)
+      end
+    }
 
     mock_files = SimpleCov::FileList.new(merged_result.map { |filename, coverage|
       mock_file = SimpleCov::SourceFile.new(filename, coverage) 
